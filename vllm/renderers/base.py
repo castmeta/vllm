@@ -239,6 +239,11 @@ class BaseRenderer(ABC, Generic[_T]):
         races with concurrent process_inputs on the mm_processor_cache."""
         await self._clear_mm_cache_async()
 
+    def restore_mm_disk_cache(self) -> None:
+        mm_processor_cache = self.mm_processor_cache
+        if mm_processor_cache is not None:
+            mm_processor_cache.restore_from_disk()
+
     def shutdown(self) -> None:
         mm_processor_cache = self.mm_processor_cache
         if mm_processor_cache is not None:
@@ -621,12 +626,15 @@ class BaseRenderer(ABC, Generic[_T]):
     def _process_multimodal(
         self,
         prompt: list[int] | str,
-        mm_data: MultiModalDataDict,
-        mm_uuids: MultiModalUUIDDict | None,
+        mm_data: "MultiModalDataDict",
+        mm_uuids: "MultiModalUUIDDict | None",
         mm_processor_kwargs: Mapping[str, object] | None,
         tokenization_kwargs: dict[str, Any] | None,
-    ) -> "MultiModalInput":
-        mm_req_id = f"renderer{self.api_process_rank}-mm-{self._mm_req_counter.inc(1)}"
+    ) -> "MultiModalInputs":
+        from vllm.multimodal.parse import parse_mm_uuids
+        from vllm.multimodal.processing import ProcessorInputs as MMProcessorInputs
+
+        mm_req_id = f"renderer-mm-{self._mm_req_counter.inc(1)}"
 
         mm_processor = self.get_mm_processor()
 
@@ -675,9 +683,9 @@ class BaseRenderer(ABC, Generic[_T]):
             engine_input = tokens_input(prompt_token_ids)
 
         if prompt_text := prompt.get("prompt"):
-            engine_input["prompt"] = prompt_text
+            inputs["prompt"] = prompt_text
         if cache_salt := prompt.get("cache_salt"):
-            engine_input["cache_salt"] = cache_salt
+            inputs["cache_salt"] = cache_salt
 
         return engine_input
 

@@ -22,6 +22,7 @@ from vllm.utils.jsontree import json_count_leaves, json_map_leaves, json_reduce_
 from vllm.utils.mem_constants import GiB_bytes, MiB_bytes
 from vllm.utils.mem_utils import format_gib
 
+from .disk_cache import MultiModalDiskCache
 from .inputs import (
     MultiModalBatchedField,
     MultiModalFeatureSpec,
@@ -295,6 +296,10 @@ class BaseMultiModalProcessorCache(
         """
         return [self.is_cached_item(mm_hash) for mm_hash in mm_hashes]
 
+    def restore_from_disk(self) -> None:
+        """Load previously persisted items from disk into the cache."""
+        pass
+
     def close(self) -> None:
         """Close the underlying cache, if needed."""
         pass
@@ -470,6 +475,15 @@ class ShmObjectStoreSenderCache(BaseMultiModalProcessorCache):
         self._total = 0
         self._last_info = CacheInfo(hits=0, total=0)
 
+        # Optional disk cache for cross-restart warm-start.
+        self._disk_cache: MultiModalDiskCache | None = None
+        if mm_config.mm_disk_cache_dir is not None:
+            self._disk_cache = MultiModalDiskCache(
+                cache_dir=mm_config.mm_disk_cache_dir,
+                max_items=mm_config.mm_disk_cache_max_items,
+                hash_prefix=mm_config.mm_disk_cache_hash_prefix,
+            )
+
     def _stat(self, *, delta: bool = False) -> CacheInfo:
         info = CacheInfo(hits=self._hits, total=self._total)
 
@@ -479,6 +493,64 @@ class ShmObjectStoreSenderCache(BaseMultiModalProcessorCache):
             info = info_delta
 
         return info
+
+    def restore_from_disk(self) -> None:
+        """Load previously persisted items from disk into shared memory.
+
+        Items are inserted in the order they appear in the disk index (which
+        mirrors the original insertion order).  Warmup stops gracefully when
+        the shared-memory ring buffer is full so that normal request handling
+        is not disrupted.
+        """
+        if self._disk_cache is None:
+            return
+        index = self._disk_cache.load_index()
+        if not index:
+            return
+
+        loaded = 0
+        skipped = 0
+        for mm_hash in index:
+            try:
+                item = self._disk_cache.load_item(mm_hash)
+                prompt_updates = self._disk_cache.load_prompt_updates(mm_hash)
+            except Exception:
+                logger.warning(
+                    "Disk cache entry '%s' is corrupt; skipping.",
+                    mm_hash,
+                    exc_info=True,
+                )
+                skipped += 1
+                continue
+
+            try:
+                address, monotonic_id = self._shm_cache.put(mm_hash, item)
+            except MemoryError:
+                logger.info(
+                    "Shared memory full after loading %d items from disk "
+                    "(%d remaining in disk index); stopping warmup.",
+                    loaded,
+                    len(index) - loaded - skipped,
+                )
+                break
+            except ValueError:
+                # Key already exists (shouldn't happen during init, but be safe).
+                skipped += 1
+                continue
+
+            self._p0_cache[mm_hash] = prompt_updates
+            loaded += 1
+
+        logger.info(
+            "Disk cache warmup complete: %d items loaded into shared memory "
+            "(%d skipped). cache_id=%d, shm_id=%d, key_index id=%d, keys=%s",
+            loaded,
+            skipped,
+            id(self),
+            id(self._shm_cache),
+            id(self._shm_cache.key_index),
+            list(self._shm_cache.key_index.keys()),
+        )
 
     @override
     def is_cached_item(self, mm_hash: str) -> bool:
@@ -510,6 +582,11 @@ class ShmObjectStoreSenderCache(BaseMultiModalProcessorCache):
                 self.remove_dangling_items()
 
             self._p0_cache[mm_hash] = prompt_updates
+
+            # Persist to disk asynchronously so the next restart can warm-start.
+            if self._disk_cache is not None:
+                self._disk_cache.save_item_async(mm_hash, item, prompt_updates)
+
             return self.address_as_item(address, monotonic_id), prompt_updates
         except (ValueError, MemoryError) as e:
             # put may fail if the object is too large or
@@ -539,6 +616,8 @@ class ShmObjectStoreSenderCache(BaseMultiModalProcessorCache):
 
     @override
     def close(self) -> None:
+        if self._disk_cache is not None:
+            self._disk_cache.flush()
         self._shm_cache.close()
 
     def remove_dangling_items(self) -> None:
