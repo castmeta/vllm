@@ -160,6 +160,9 @@ class AsyncLLM(EngineClient):
             client_index=client_index,
         )
 
+        # Load disk cache after dummy profiling is complete
+        self.renderer.restore_mm_disk_cache()
+
         # Loggers.
         self.logger_manager: StatLoggerManager | None = None
         if self.log_stats:

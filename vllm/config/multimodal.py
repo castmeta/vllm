@@ -134,6 +134,23 @@ class MultiModalConfig:
     """Size limit (in MiB) for each object stored in the multi-modal processor
     shared memory cache. Only effective when `mm_processor_cache_type` is
     `"shm"`."""
+    mm_disk_cache_dir: str | None = None
+    """Directory for the multi-modal disk cache used to warm-start the shared
+    memory IPC cache across server restarts.  When set, processed
+    multi-modal items are persisted to disk asynchronously and reloaded into
+    shared memory at the next startup.  Only effective when
+    `mm_processor_cache_type` is `"shm"`."""
+    mm_disk_cache_max_items: int = Field(default=0, ge=0)
+    """Maximum number of items to keep in the disk cache.  ``0`` means
+    unlimited (bounded only by available disk space).  Oldest entries are
+    evicted first when the limit is exceeded.  Only effective when
+    `mm_processor_cache_type` is `"shm"` and `mm_disk_cache_dir` is set."""
+    mm_disk_cache_hash_prefix: str | None = None
+    """Hash prefix filter for selective disk caching.  When set, only
+    multi-modal items whose hash starts with this prefix will be persisted
+    to disk.  ``None`` means all items are cached (no filtering).  Only
+    effective when `mm_processor_cache_type` is `\"shm\"` and
+    `mm_disk_cache_dir` is set."""
     mm_encoder_only: bool = False
     """
     When enabled, skips the language component of the model.

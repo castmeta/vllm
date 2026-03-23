@@ -157,6 +157,11 @@ class BaseRenderer(ABC, Generic[_T]):
         if self._mm_cache_stats is not None:
             self._mm_cache_stats.reset = True
 
+    def restore_mm_disk_cache(self) -> None:
+        mm_processor_cache = self.mm_processor_cache
+        if mm_processor_cache is not None:
+            mm_processor_cache.restore_from_disk()
+
     def shutdown(self) -> None:
         mm_processor_cache = self.mm_processor_cache
         if mm_processor_cache is not None:

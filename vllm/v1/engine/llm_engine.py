@@ -137,6 +137,8 @@ class LLMEngine:
 
         # Don't keep the dummy data in memory
         self.reset_mm_cache()
+        # Load disk cache after dummy data is cleared
+        self.restore_mm_disk_cache()
 
     @classmethod
     def from_vllm_config(
@@ -336,6 +338,9 @@ class LLMEngine:
 
     def stop_profile(self):
         self.engine_core.profile(False)
+
+    def restore_mm_disk_cache(self) -> None:
+        self.renderer.restore_mm_disk_cache()
 
     def reset_mm_cache(self):
         self.renderer.clear_mm_cache()

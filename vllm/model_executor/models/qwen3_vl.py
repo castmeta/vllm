@@ -24,6 +24,7 @@
 # limitations under the License.
 """Inference-only Qwen3VL model compatible with HuggingFace weights."""
 
+import time
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from functools import lru_cache, partial
 from itertools import islice
@@ -959,7 +960,7 @@ class Qwen3VLMultiModalProcessor(BaseMultiModalProcessor[Qwen3VLProcessingInfo])
             video_grid_thw_lst = []
             pixel_values_videos_lst = []
             timestamps_per_video = []
-
+            start_time = time.perf_counter()
             for item in videos:
                 video_array, metadata = item
 
@@ -1051,12 +1052,27 @@ class Qwen3VLMultiModalProcessor(BaseMultiModalProcessor[Qwen3VLProcessingInfo])
                     1,
                 )
 
-                video_grid_thw_lst.append(video_outputs["video_grid_thw"])
-                pixel_values_videos_lst.append(video_outputs["pixel_values_videos"])
+                # video_grid_thw_lst.append(video_outputs["video_grid_thw"])
+                # pixel_values_videos_lst.append(video_outputs["pixel_values_videos"])
+
+                _pv = video_outputs["pixel_values_videos"]
+                _gt = video_outputs["video_grid_thw"]
+                logger.info(
+                    "Video[%d] HF processor output: "
+                    "pixel_values_videos=%s, video_grid_thw.shape=%s",
+                    len(video_grid_thw_lst),
+                    tuple(_pv.shape),
+                    tuple(_gt),
+                )
+                video_grid_thw_lst.append(_gt)
+                pixel_values_videos_lst.append(_pv)
             video_outputs = dict(
                 pixel_values_videos=torch.cat(pixel_values_videos_lst),
                 video_grid_thw=torch.cat(video_grid_thw_lst),
                 timestamps=timestamps_per_video,
+            )
+            logger.info(
+                "HF processor time: %.2f seconds", time.perf_counter() - start_time
             )
         else:
             video_outputs = dict()
