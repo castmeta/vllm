@@ -631,6 +631,16 @@ class Scheduler(SchedulerInterface):
                     num_computed_tokens = (
                         num_new_local_computed_tokens + num_external_computed_tokens
                     )
+                    if num_computed_tokens > 0:
+                        logger.info(
+                            "Prefix cache hit for request %s: "
+                            "local=%d external=%d total=%d/%d tokens",
+                            request_id,
+                            num_new_local_computed_tokens,
+                            num_external_computed_tokens,
+                            num_computed_tokens,
+                            request.num_tokens,
+                        )
                 else:
                     # KVTransfer: WAITING reqs have num_computed_tokens > 0
                     # after async KV recvs are completed.
@@ -737,7 +747,12 @@ class Scheduler(SchedulerInterface):
                     if request.has_encoder_inputs:
                         self.encoder_cache_manager.free(request)
                     break
-
+                logger.info(
+                    "Prefill request %s: prompt_tokens=%d scheduled_tokens=%d",
+                    request_id,
+                    request.num_tokens,
+                    num_new_tokens,
+                )
                 # KVTransfer: the connector uses this info to determine
                 # if a load is needed. Note that
                 # This information is used to determine if a load is

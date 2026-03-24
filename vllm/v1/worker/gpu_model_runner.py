@@ -3162,13 +3162,6 @@ class GPUModelRunner(
             token_seq_len = input_ids.size(-1)
         else:
             token_seq_len = -1
-        if token_seq_len > 1:
-            logger.info(
-                "model_forward token_seq_len=%d (input_ids=%s, inputs_embeds=%s)",
-                token_seq_len,
-                tuple(input_ids.shape) if input_ids is not None else None,
-                tuple(inputs_embeds.shape) if inputs_embeds is not None else None,
-            )
         return self.model(
             input_ids=input_ids,
             positions=positions,
